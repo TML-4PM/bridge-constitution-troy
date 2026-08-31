@@ -1,25 +1,54 @@
-version: 1
-status: canonical
+version: 2
+status: canonical-design
 purpose: >-
-  Single governed endpoint model for the T4H bridge/MCP estate. The bridge is
-  the control plane; MCP servers are capability planes; runners execute work;
-  LLMs provide reasoning; low/mid/special services remain behind the bridge.
+  Govern the T4H MCP and Super-Agent estates as two independent authority domains.
+  Public endpoint count is intentionally small; internal providers, workers,
+  runners, model adapters and services are capability implementations, not
+  additional public control planes.
 
-principles:
-  - one public bridge ingress
-  - one canonical MCP ingress behind the bridge
-  - no duplicate public MCP endpoints
-  - no direct client-to-worker or client-to-LLM routing
-  - read-only by default
-  - writes require explicit capability and policy gates
-  - every call has identity, authority, correlation_id, audit evidence, and outcome
-  - health endpoints are operational only and expose no secrets
+systems:
+  mcp:
+    authority_domain: independent
+    purpose: governed capability and tool access
+    paths:
+      low:
+        risk: low
+        persistence: [one_shot, session, permanent]
+        default_authority: read
+      bau:
+        risk: bau
+        persistence: [one_shot, session, permanent]
+        description: high-value frequent-use approved capability sets
+      high:
+        risk: high
+        persistence: [one_shot, session, permanent]
+        description: specialist, consequential, privileged or sensitive access
+    attributes:
+      - capability
+      - risk
+      - persistence
+      - boundary
+      - authority
+      - version
+      - principal
+      - scope
+      - permission
+
+  super_agent:
+    authority_domain: independent
+    purpose: autonomous problem solving, repair, execution and verification
+    note: >-
+      Super-Agent scopes, permissions, capabilities and tools are independent
+      from MCP. Super-Agent is not an MCP permission gate and does not sit in
+      the MCP routing path.
 
 public:
-  bridge:
-    role: control-plane-ingress
-    path: /bridge
-    methods: [POST]
+  protocol:
+    role: protocol ingress
+    path: /mcp
+    note: >-
+      Canonical MCP protocol surface where deployed. It presents governed MCP
+      capabilities; providers/adapters remain implementation details.
   health:
     role: liveness
     path: /healthz
@@ -28,59 +57,26 @@ public:
     role: readiness
     path: /readyz
     methods: [GET]
-  mcp:
-    role: canonical-capability-ingress
-    path: /mcp
-    methods: [POST, GET, DELETE]
 
 internal:
-  runner:
-    role: execution
-    exposure: bridge-only
-    path: /internal/runner
-  llm:
-    role: reasoning
-    exposure: bridge-only
-    path: /internal/llm
-  mid:
-    role: medium-risk capability services
-    exposure: bridge-only
-    path: /internal/mid
-  low:
-    role: low-risk capability services
-    exposure: bridge-only
-    path: /internal/low
-  special:
-    role: specialist capability services
-    exposure: bridge-only
-    path: /internal/special
+  capability_providers: bridge-only-or-private
+  workers: private
+  runners: private
+  llm_adapters: private
+  credential_services: private
 
-call_model:
-  request:
-    required: [request_id, principal, capability, input, authority, correlation_id]
-  response:
-    required: [request_id, status, result, evidence, correlation_id]
-  failure:
-    required: [request_id, status, error_code, correlation_id]
-
-routing:
-  - match: capability=llm
-    target: internal.llm
-  - match: capability=runner
-    target: internal.runner
-  - match: risk=mid
-    target: internal.mid
-  - match: risk=low
-    target: internal.low
-  - match: class=special
-    target: internal.special
-  - match: protocol=mcp
-    target: public.mcp
+routing_rules:
+  - system: mcp
+    route_by: [risk, persistence, boundary, capability, authority]
+  - system: super_agent
+    route_by: [scope, permission, capability, boundary]
+  - cross_system:
+    rule: explicit_integration_contract_only
 
 forbidden:
-  - public worker endpoints
-  - public runner endpoints
-  - public LLM endpoints
-  - public low/mid/special endpoints
-  - duplicate /mcp paths on separate public services
-  - unaudited bridge bypasses
+  - implicit MCP permission inheritance by Super-Agent
+  - Super-Agent acting as MCP permission gate
+  - duplicate public MCP gateways for the same capability
+  - public worker/runner/model endpoints without explicit architecture approval
+  - credentials in source, logs, prompts, tool descriptions or evidence payloads
+  - endpoint proliferation used as a substitute for capability routing
