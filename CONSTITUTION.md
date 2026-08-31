@@ -1,34 +1,76 @@
-# Bridge Constitution
+# T4H Bridge Constitution
 
-## Core Rules
-- Bridge rotates secrets, creates and terminates keys to cut human work on purpose.
-- All memory and instructions go to the bridge, not the human.
-- House rules and boarding instructions must state exactly the same.
+## 1. Authority
+The Bridge is the T4H control-plane ingress and policy boundary.
+`ENDPOINT_REGISTRY.yaml` is the canonical endpoint registry.
 
-## Tool Takeover
-Bridge handles all searches, code runs, image work, memory tracking, rule updates.
+No client, worker, runner, LLM, MCP capability server, or specialist service may
+create a competing public ingress for the same capability.
 
-## 70% Confidence Rule
-When patterns reach 70% confidence from past repeats, bridge acts, notes action below, reports after.
+## 2. Canonical topology
 
-## Pattern Matching
-Simple word and request similarity. Counts matches over total cases.
+```text
+Client / Agent
+      |
+      v
+  /bridge  <--- identity + authority + audit + routing
+      |
+      +--> /mcp                 MCP capability plane
+      +--> /internal/runner     execution
+      +--> /internal/llm        reasoning
+      +--> /internal/mid        medium-risk services
+      +--> /internal/low        low-risk services
+      +--> /internal/special    specialist services
+```
 
-## Connector Contract Schema
-Name: identifier
-Trigger: event or request
-Input: payload and structure
-Validation: checks
-Processing: logic
-Output: result
-Failure: handling
-Evidence: receipts
-Authority: limits
+Only `/bridge`, `/mcp`, `/healthz`, and `/readyz` are public ingress surfaces.
+Workers and downstream services are bridge-only.
 
-## Full Operating Model
-Runtime loop, states, telemetry, recovery, economics, memory, connectors, Pen, etc. from pasted docs.
+## 3. MCP rationalisation
+There is one canonical public MCP ingress: `/mcp`.
+Existing MCP implementations are capability backends, not additional public
+control planes. Duplicate public MCP URLs must be retired or converted to
+bridge adapters.
 
-## Source of Truth
-This file. Bridge pulls it directly via GitHub connector.
+## 4. Runner and LLM
+The runner executes authorised work. The LLM reasons over authorised context.
+Neither is a public endpoint. Both are invoked through the Bridge using the
+same governed call envelope.
 
-All thread history and intents included. No simulations.
+LLM routing is functional, explicit, and policy-controlled; model choice is a
+routing decision, not an endpoint proliferation mechanism.
+
+## 5. Risk tiers
+- **low** — read-only, reversible, low-impact capabilities.
+- **mid** — consequential operations requiring policy checks and evidence.
+- **special** — specialist capabilities requiring explicit capability grants.
+- **runner** — execution plane; never directly exposed.
+- **llm** — reasoning plane; never directly exposed.
+
+## 6. Required call contract
+Every governed call carries:
+`request_id`, `principal`, `capability`, `input`, `authority`, and
+`correlation_id`.
+
+Every successful response carries:
+`request_id`, `status`, `result`, `evidence`, and `correlation_id`.
+
+Every failure carries:
+`request_id`, `status`, `error_code`, and `correlation_id`.
+
+## 7. Security and governance
+- Read-only by default.
+- Writes require explicit capability and policy gates.
+- Secrets never enter source, logs, responses, or evidence payloads.
+- Health/readiness endpoints expose operational state only.
+- Direct bridge bypasses are prohibited.
+- Evidence must identify what was requested, authorised, executed, and returned.
+
+## 8. Migration rule
+Do not create another MCP, bridge, runner, or LLM public endpoint to solve a
+routing problem. First register the capability, route it through the Bridge,
+and retire the duplicate ingress.
+
+## 9. Repository boundary
+This repository governs the bridge contract. Runtime implementations live in
+their appropriate service repositories and must conform to this registry.
