@@ -1,0 +1,86 @@
+version: 1
+status: canonical
+purpose: >-
+  Single governed endpoint model for the T4H bridge/MCP estate. The bridge is
+  the control plane; MCP servers are capability planes; runners execute work;
+  LLMs provide reasoning; low/mid/special services remain behind the bridge.
+
+principles:
+  - one public bridge ingress
+  - one canonical MCP ingress behind the bridge
+  - no duplicate public MCP endpoints
+  - no direct client-to-worker or client-to-LLM routing
+  - read-only by default
+  - writes require explicit capability and policy gates
+  - every call has identity, authority, correlation_id, audit evidence, and outcome
+  - health endpoints are operational only and expose no secrets
+
+public:
+  bridge:
+    role: control-plane-ingress
+    path: /bridge
+    methods: [POST]
+  health:
+    role: liveness
+    path: /healthz
+    methods: [GET]
+  readiness:
+    role: readiness
+    path: /readyz
+    methods: [GET]
+  mcp:
+    role: canonical-capability-ingress
+    path: /mcp
+    methods: [POST, GET, DELETE]
+
+internal:
+  runner:
+    role: execution
+    exposure: bridge-only
+    path: /internal/runner
+  llm:
+    role: reasoning
+    exposure: bridge-only
+    path: /internal/llm
+  mid:
+    role: medium-risk capability services
+    exposure: bridge-only
+    path: /internal/mid
+  low:
+    role: low-risk capability services
+    exposure: bridge-only
+    path: /internal/low
+  special:
+    role: specialist capability services
+    exposure: bridge-only
+    path: /internal/special
+
+call_model:
+  request:
+    required: [request_id, principal, capability, input, authority, correlation_id]
+  response:
+    required: [request_id, status, result, evidence, correlation_id]
+  failure:
+    required: [request_id, status, error_code, correlation_id]
+
+routing:
+  - match: capability=llm
+    target: internal.llm
+  - match: capability=runner
+    target: internal.runner
+  - match: risk=mid
+    target: internal.mid
+  - match: risk=low
+    target: internal.low
+  - match: class=special
+    target: internal.special
+  - match: protocol=mcp
+    target: public.mcp
+
+forbidden:
+  - public worker endpoints
+  - public runner endpoints
+  - public LLM endpoints
+  - public low/mid/special endpoints
+  - duplicate /mcp paths on separate public services
+  - unaudited bridge bypasses
